@@ -7,3 +7,10 @@
 
 
 - scene é a coisa mais importante, é a coisa em si, a ser renderizada. é ela quem possui
+
+
+
+project
+  models
+  geometries
+  views
