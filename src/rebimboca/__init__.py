@@ -1,4 +1,4 @@
-"""ifcgfx — live coding sobre modelos IFC."""
+"""rebimboca — live coding sobre modelos IFC."""
 
 from .main import GeometryData, Project, View, Viewport
 

@@ -1,5 +1,5 @@
 [project]
-name = "ifcgfx"
+name = "rebimboca"
 version = "0.1.0"
 description = ""
 authors = [
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "ifcgfx", from = "src"}]
+packages = [{include = "rebimboca", from = "src"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
