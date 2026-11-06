@@ -206,6 +206,11 @@ class View:
     """
 
     def __init__(self, project: Project):
+        if not isinstance(project, Project):
+            raise TypeError(
+                f"project deve ser uma instância de Project, "
+                f"não {type(project).__name__}"
+            )
         self.project = project
         self.scene = gfx.Scene()
         self.camera = gfx.PerspectiveCamera(fov=70, aspect=800 / 600)
