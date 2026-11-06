@@ -209,7 +209,7 @@ class View:
         self.project = project
         self.scene = gfx.Scene()
         self.camera = gfx.PerspectiveCamera(fov=70, aspect=800 / 600)
-        self.camera.position.z = 500
+        self.camera.local.z = 500
         self.elements: dict[tuple[str, str], gfx.Mesh] = {}
         self.viewport: Viewport | None = None
         self.settings: dict = {}
@@ -248,7 +248,7 @@ class View:
         if not self.elements:
             return
         self.camera.show_object(
-            list(self.elements.values()),
+            self.scene,
             view_dir=(1, -1, 1),
             up=(0, 0, 1),
         )

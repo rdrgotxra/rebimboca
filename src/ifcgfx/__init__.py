@@ -1,5 +1,5 @@
-import ifcopenshell as ifc
-import pygfx as gfx
+"""ifcgfx — live coding sobre modelos IFC."""
 
-print(f'IfcOpenShell: {ifc.version}')
-print(f'Pygfx: {gfx.__version__}')
+from .main import GeometryData, Project, View, Viewport
+
+__all__ = ["GeometryData", "Project", "View", "Viewport"]
