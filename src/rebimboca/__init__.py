@@ -2,13 +2,13 @@
 
 from typing import TYPE_CHECKING, Any
 
-from .project import GeometryData, Project
+from .project import ModelGeometry, Project
 
 if TYPE_CHECKING:
     from .view import View
     from .viewport import Viewport
 
-__all__ = ["GeometryData", "Project", "View", "Viewport"]
+__all__ = ["ModelGeometry", "Project", "View", "Viewport"]
 
 
 def __getattr__(name: str) -> Any:

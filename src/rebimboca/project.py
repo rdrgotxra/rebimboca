@@ -1,8 +1,8 @@
+"""Modelos IFC e seus dados derivados."""
+
 from __future__ import annotations
 
 import multiprocessing
-from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import ifcopenshell
@@ -13,148 +13,147 @@ if TYPE_CHECKING:
     from .view import View
 
 
-@dataclass
-class GeometryData:
-    """Geometria extraída de um elemento IFC. NumPy puro, GPU-agnóstica."""
+class ModelGeometry:
+    """Geometria tessellada de um elemento IFC, em NumPy puro."""
 
-    positions: np.ndarray               # (N, 3) float32
-    indices: np.ndarray                 # (M, 3) uint32
-    normals: np.ndarray | None = None   # (N, 3) float32
-    material_name: str | None = None    # reservado v1+
+    def __init__(
+        self,
+        positions: np.ndarray,
+        indices: np.ndarray,
+        normals: np.ndarray | None = None,
+    ) -> None:
+        self.positions = positions
+        self.indices = indices
+        self.normals = normals
+
+
+class ModelData:
+    """Dados derivados de um arquivo IFC."""
+
+    def __init__(self) -> None:
+        self.geometries: dict[str, ModelGeometry] | None = None
 
 
 class Project:
-    """Contexto de trabalho sobre modelos IFC.
+    """Contexto de trabalho sobre modelos ifcopenshell.
 
-    Registra modelos, extrai geometria e coordena views. Sem Scene, sem
-    GPU — pode existir headless (análise, CI, clash detection).
-
-    O name de cada modelo é derivado de Path(path).stem. A identidade
-    documental é a identidade de registro.
+    Guarda modelos, extrai geometria e coordena views. Os arquivos IFC
+    continuam sendo objetos ifcopenshell.file originais.
     """
 
-    def __init__(self):
-        self._models: dict[str, ifcopenshell.file] = {}
-        self._geometries: dict[tuple[str, str], GeometryData] = {}
+    def __init__(self, *ifc_models: ifcopenshell.file) -> None:
+        self._models: dict[ifcopenshell.file, ModelData] = {}
         self._views: dict[str, View] = {}
-        self.settings: dict = {}
-        self.render_origin: np.ndarray = np.zeros(3, dtype=np.float64)
+        # self.settings: dict = {}
+
+        for ifc_model in ifc_models:
+            self.add_model(ifc_model)
 
     @property
-    def model_names(self) -> tuple[str, ...]:
-        """Snapshot dos names de modelos registrados, em ordem de inserção."""
+    def models(self) -> tuple[ifcopenshell.file, ...]:
+        """Snapshot dos arquivos IFC registrados, em ordem de inserção."""
         return tuple(self._models)
 
-    def add_model(self, path: str) -> ifcopenshell.file:
-        """Abre um IFC e registra no projeto. Retorna o ifcopenshell.file cru.
+    def add_model(self, ifc_model: ifcopenshell.file) -> None:
+        """Registra um arquivo IFC já aberto.
 
-        O name é derivado de Path(path).stem. Não extrai geometria;
-        chame update() para isso.
+        A identidade é o arquivo subjacente: o mesmo arquivo não pode ser
+        registrado duas vezes, mas duas aberturas do mesmo caminho sim.
         """
-        name = Path(path).stem
-        if name in self._models:
-            raise ValueError(
-                f"modelo {name!r} já registrado (filename colide). "
-                f"Renomeie o arquivo ou remova com remove_model({name!r})."
-            )
-        model = ifcopenshell.open(path)
-        self._models[name] = model
-        return model
+        if ifc_model in self._models:
+            raise ValueError("modelo IFC já registrado neste projeto")
 
-    def get_model(self, name: str) -> ifcopenshell.file:
-        if name not in self._models:
-            raise KeyError(
-                f"modelo {name!r} não registrado. "
-                f"Disponíveis: {self.model_names}"
-            )
-        return self._models[name]
+        self._models[ifc_model] = ModelData()
 
-    def remove_model(self, name: str) -> None:
-        """Desregistra o modelo, suas geometrias e remove das views.
+    def remove_model(self, ifc_model: ifcopenshell.file) -> None:
+        """Desregistra o modelo. As views mudam no próximo update()."""
+        if ifc_model not in self._models:
+            raise ValueError("modelo IFC não registrado neste projeto")
 
-        Não destrói o ifcopenshell.file — apenas o remove do projeto.
-        """
-        if name not in self._models:
-            raise KeyError(
-                f"modelo {name!r} não registrado. "
-                f"Disponíveis: {self.model_names}"
-            )
-        del self._models[name]
-        for key in [k for k in self._geometries if k[0] == name]:
-            del self._geometries[key]
-        for view in self._views.values():
-            view._on_model_removed(name)
+        del self._models[ifc_model]
 
     @property
-    def view_names(self) -> tuple[str, ...]:
-        """Snapshot dos names de views registradas, em ordem de inserção."""
-        return tuple(self._views)
-
-    def add_view(self, name: str) -> View:
-        """Cria e registra uma View. Não exibe; chame view.show()."""
-        if name in self._views:
-            raise ValueError(f"view {name!r} já existe")
-        from .view import View
-
-        view = View(self)
-        self._views[name] = view
-        return view
+    def views(self) -> tuple[View, ...]:
+        """Snapshot das views registradas, em ordem de inserção."""
+        return tuple(self._views.values())
 
     def get_view(self, name: str) -> View:
+        """Retorna a view registrada com o nome informado."""
         if name not in self._views:
             raise KeyError(
                 f"view {name!r} não existe. "
-                f"Disponíveis: {self.view_names}"
+                f"Disponíveis: {tuple(self._views)}"
             )
         return self._views[name]
 
+    def create_view(self, name: str) -> View:
+        """Cria e registra uma View. Não exibe; chame view.show().
+
+        O nome é a chave da view e precisa ser único. Renomear exige
+        remover o nome antigo antes de criar o novo.
+        """
+        if name in self._views:
+            raise ValueError(
+                f"view {name!r} já existe. "
+                f"Remova com remove_view({name!r}) antes de recriar."
+            )
+
+        from .view import View
+
+        view = View(self, name)
+        self._views[name] = view
+        return view
+
     def remove_view(self, name: str) -> None:
-        """Fecha o viewport (se aberto) e desregistra a view."""
+        """Fecha a viewport (se aberta) e desregistra a view."""
         if name not in self._views:
             raise KeyError(
                 f"view {name!r} não existe. "
-                f"Disponíveis: {self.view_names}"
+                f"Disponíveis: {tuple(self._views)}"
             )
+
         self._views[name].close()
         del self._views[name]
 
     def update(self) -> None:
-        """Reextrai geometria de todos os modelos e reconstrói todas as views.
+        """Reextrai a geometria e reconstrói as cenas.
 
-        Use após mutar modelos via ifcopenshell. Não relê arquivos do
-        disco. Não reposiciona câmeras — o enquadramento do usuário é
-        preservado; chame view.fit() para reenquadrar.
+        Lê apenas os objetos IFC já em memória. Não reabre arquivos,
+        não salva e não reposiciona câmeras.
         """
-        for name in list(self._models):
-            self._extract_geometry(name)
+        for ifc_model, model_data in self._models.items():
+            self._extract_geometry(ifc_model, model_data)
+
         for view in self._views.values():
             view._rebuild_scene()
             if view.viewport is not None:
                 view.viewport.request_draw()
 
-    def set(self, **kwargs) -> None:
-        """Placeholder v0. Configurações globais entram em v1+."""
-        pass
+    def _extract_geometry(
+        self,
+        ifc_model: ifcopenshell.file,
+        model_data: ModelData,
+    ) -> None:
+        """Tessela um modelo e troca as geometrias só ao terminar.
 
-    def _extract_geometry(self, name: str) -> None:
-        """Re-tessela um modelo via geometry iterator com swap atômico."""
-        model = self._models[name]
+        A troca no final evita deixar o modelo com dados parciais se a
+        extração falhar no meio.
+        """
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_WORLD_COORDS, True)
 
         iterator = ifcopenshell.geom.iterator(
-            settings, model, multiprocessing.cpu_count()
+            settings, ifc_model, multiprocessing.cpu_count()
         )
 
-        new_geoms: dict[tuple[str, str], GeometryData] = {}
+        geometries: dict[str, ModelGeometry] = {}
         if iterator.initialize():
             while True:
                 shape = iterator.get()
                 if shape is not None and len(shape.geometry.verts) > 0:
                     verts = np.asarray(
-                        shape.geometry.verts, dtype=np.float64
+                        shape.geometry.verts, dtype=np.float32
                     ).reshape(-1, 3)
-                    positions = (verts - self.render_origin).astype(np.float32)
                     indices = np.asarray(
                         shape.geometry.faces, dtype=np.uint32
                     ).reshape(-1, 3)
@@ -162,16 +161,17 @@ class Project:
                     normals = None
                     raw = shape.geometry.normals
                     if raw is not None and len(raw) == len(verts) * 3:
-                        normals = np.asarray(raw, dtype=np.float32).reshape(-1, 3)
+                        normals = np.asarray(
+                            raw, dtype=np.float32
+                        ).reshape(-1, 3)
 
-                    new_geoms[(name, shape.guid)] = GeometryData(
-                        positions=positions,
+                    geometries[shape.guid] = ModelGeometry(
+                        positions=verts,
                         indices=indices,
                         normals=normals,
                     )
+
                 if not iterator.next():
                     break
 
-        for key in [k for k in self._geometries if k[0] == name]:
-            del self._geometries[key]
-        self._geometries.update(new_geoms)
+        model_data.geometries = geometries

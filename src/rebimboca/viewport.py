@@ -1,3 +1,5 @@
+"""Apresentação gráfica: canvas, renderer e controller."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -11,7 +13,7 @@ if TYPE_CHECKING:
 class Viewport:
     """Infraestrutura gráfica: canvas, renderer e controller."""
 
-    def __init__(self, view: View):
+    def __init__(self, view: View) -> None:
         from rendercanvas.auto import RenderCanvas
 
         self.view = view
@@ -27,9 +29,11 @@ class Viewport:
         self.renderer.render(self.view.scene, self.view.camera)
 
     def request_draw(self) -> None:
+        """Agenda um novo desenho da cena."""
         self.canvas.request_draw()
 
     def close(self) -> None:
+        """Fecha o canvas sem propagar erros de encerramento."""
         try:
             self.canvas.close()
         except Exception:

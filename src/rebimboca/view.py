@@ -1,45 +1,46 @@
+"""Configuração de visualização: Scene, Camera e meshes."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import pygfx as gfx
 
-from .project import Project
-
 if TYPE_CHECKING:
+    import ifcopenshell
+
+    from .project import Project
     from .viewport import Viewport
 
 
 class View:
     """Configuração de visualização, independente da viewport aberta.
 
-    Cada View possui sua própria Scene e Camera. A View sobrevive a
-    close(); a Viewport gráfica é descartável.
+    Cada View tem sua própria Scene e Camera. A View sobrevive a
+    close(); só a Viewport gráfica é descartada.
     """
 
-    def __init__(self, project: Project):
-        if not isinstance(project, Project):
-            raise TypeError(
-                f"project deve ser uma instância de Project, "
-                f"não {type(project).__name__}"
-            )
+    def __init__(self, project: Project, name: str) -> None:
         self.project = project
+        self.name = name
         self.scene = gfx.Scene()
-        self.camera = gfx.PerspectiveCamera(fov=70, aspect=800 / 600)
+        self.camera = gfx.PerspectiveCamera(fov=70, aspect=800 // 600)
         self.camera.local.z = 500
-        self.elements: dict[tuple[str, str], gfx.Mesh] = {}
+
+        # arquivo IFC -> GUID -> mesh
+        self.elements: dict[ifcopenshell.file, dict[str, gfx.Mesh]] = {}
         self.viewport: Viewport | None = None
-        self.settings: dict = {}
 
         self.scene.add(gfx.AmbientLight())
         light = gfx.DirectionalLight()
-        light.position = (300, 400, 500)
+        light.local.position = (300, 400, 500)
         self.scene.add(light)
 
     def show(self) -> None:
-        """Cria a viewport gráfica para esta view, se ainda não existir."""
+        """Cria a viewport gráfica, se ainda não existir."""
         if self.viewport is not None:
             return
+
         if not self.elements:
             self._rebuild_scene()
             self.fit()
@@ -49,19 +50,16 @@ class View:
         self.viewport = Viewport(self)
 
     def close(self) -> None:
-        """Destrói a viewport, preservando a View, a Scene e a Camera."""
+        """Fecha a viewport, preservando a View e sua cena."""
         if self.viewport is not None:
             self.viewport.close()
             self.viewport = None
-
-    def set(self, **kwargs) -> None:
-        """Placeholder v0. Overrides por view entram em v1+."""
-        pass
 
     def fit(self) -> None:
         """Enquadra a câmera nos elementos. Z-up (padrão IFC)."""
         if not self.elements:
             return
+
         self.camera.show_object(
             self.scene,
             view_dir=(1, -1, 1),
@@ -71,23 +69,27 @@ class View:
             self.viewport.request_draw()
 
     def _rebuild_scene(self) -> None:
-        """Recria todos os meshes a partir da geometria do Project."""
-        for mesh in self.elements.values():
-            self.scene.remove(mesh)
+        """Recria os meshes a partir das geometrias do Project."""
+        for meshes in self.elements.values():
+            for mesh in meshes.values():
+                self.scene.remove(mesh)
         self.elements.clear()
 
         material = gfx.MeshStandardMaterial(color="#cccccc")
-        for key, geom in self.project._geometries.items():
-            kwargs = dict(positions=geom.positions, indices=geom.indices)
-            if geom.normals is not None:
-                kwargs["normals"] = geom.normals
-            mesh = gfx.Mesh(gfx.Geometry(**kwargs), material)
-            self.scene.add(mesh)
-            self.elements[key] = mesh
+        for ifc_model, model_data in self.project._models.items():
+            if model_data.geometries is None:
+                continue
 
-    def _on_model_removed(self, name: str) -> None:
-        for key in [k for k in self.elements if k[0] == name]:
-            self.scene.remove(self.elements[key])
-            del self.elements[key]
-        if self.viewport is not None:
-            self.viewport.request_draw()
+            meshes: dict[str, gfx.Mesh] = {}
+            for guid, geom in model_data.geometries.items():
+                kwargs = {
+                    "positions": geom.positions,
+                    "indices": geom.indices,
+                }
+                if geom.normals is not None:
+                    kwargs["normals"] = geom.normals
+                mesh = gfx.Mesh(gfx.Geometry(**kwargs), material)
+                self.scene.add(mesh)
+                meshes[guid] = mesh
+
+            self.elements[ifc_model] = meshes
